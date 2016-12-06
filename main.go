@@ -26,10 +26,12 @@ func main() {
 	root.PersistentFlags().IntVarP(&maxConcurrent, "concurrent", "c", 10, "the max number of concurrent files to upload")
 	root.PersistentFlags().Int64Var(&fileSize, "kb", 100, "the size of the data to create and upload")
 	root.PersistentFlags().Int32VarP(&fileCount, "num", "n", 1, "the number of files to upload")
-	root.PersistentFlags().IntVarP(&seed, "seed", "s", 123345, "the seed to use for random")
+	root.PersistentFlags().IntVarP(&seed, "seed", "s", 0, "the seed to use for random")
 	root.PersistentFlags().StringVarP(&bucket, "bucket", "b", "nf-bench-test", "name of the bucket to upload to")
 
-	rand.Seed(int64(seed))
+	if seed != 0 {
+		rand.Seed(int64(seed))
+	}
 
 	if err := root.Execute(); err != nil {
 		logrus.Fatal("Failed to execute command")
