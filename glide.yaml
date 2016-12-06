@@ -1,0 +1,16 @@
+package: github.com/rybit/cloud-bench
+import:
+- package: cloud.google.com/go
+  version: v0.5.0
+  subpackages:
+  - storage
+- package: github.com/Sirupsen/logrus
+  version: v0.11.0
+- package: github.com/aws/aws-sdk-go
+  version: v1.5.13
+  subpackages:
+  - aws
+  - aws/credentials
+  - aws/session
+  - service/s3
+- package: github.com/spf13/cobra
