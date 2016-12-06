@@ -85,7 +85,7 @@ func uploadToS3(cmd *cobra.Command, args []string) {
 
 	results := uploadData(func(key string, data []byte) error {
 		l := logrus.WithField("worker_id", key)
-		l.Info("Starting to upload to s3")
+		l.Debug("Starting to upload to s3")
 		buf := strings.NewReader(string(data))
 		dataLen := int64(len(data))
 		_, err := svc.PutObject(&s3.PutObjectInput{
