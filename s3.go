@@ -1,8 +1,6 @@
 package main
 
 import (
-	"time"
-
 	"sync"
 
 	"strings"
@@ -85,7 +83,6 @@ func uploadToS3(cmd *cobra.Command, args []string) {
 		logrus.WithError(err).Fatal("Failed to wait for bucket creation")
 	}
 
-	globalStart := time.Now()
 	results := uploadData(func(key string, data []byte) error {
 		l := logrus.WithField("worker_id", key)
 		l.Info("Starting to upload to s3")
@@ -99,8 +96,6 @@ func uploadToS3(cmd *cobra.Command, args []string) {
 		})
 		return err
 	})
-	dur := time.Since(globalStart)
-	logrus.Infof("Completed workers in %s", dur.String())
 
 	displayResults(results)
 }

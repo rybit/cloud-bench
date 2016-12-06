@@ -43,16 +43,14 @@ func uploadToGoogle(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to configure storage client")
 	}
-	logrus.Info("Connected to google API")
+	logrus.Debug("Connected to google API")
 
-	logrus.Info("Listing out buckets")
+	logrus.Debug("Listing out buckets")
 	found := false
 	iter := client.Buckets(ctx, projectID)
 	iter.Prefix = bucket
 
 	for b, err := iter.Next(); err != iterator.Done && err == nil; b, err = iter.Next() {
-		fmt.Printf("bucket %+v\n", b)
-		fmt.Printf("err %+v\n", err)
 		if b.Name == bucket {
 			found = true
 			break

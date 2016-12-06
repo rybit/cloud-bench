@@ -9,6 +9,8 @@ import (
 
 	"sync"
 
+	"sync/atomic"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -18,6 +20,7 @@ var fileSize int64
 var fileCount int32
 var seed int
 var bucket string
+var debug bool
 
 func main() {
 	root := cobra.Command{}
@@ -27,10 +30,15 @@ func main() {
 	root.PersistentFlags().Int64Var(&fileSize, "kb", 100, "the size of the data to create and upload")
 	root.PersistentFlags().Int32VarP(&fileCount, "num", "n", 1, "the number of files to upload")
 	root.PersistentFlags().IntVarP(&seed, "seed", "s", 0, "the seed to use for random")
+	root.PersistentFlags().BoolVarP(&debug, "verbose", "v", false, "enable debug logging")
 	root.PersistentFlags().StringVarP(&bucket, "bucket", "b", "nf-bench-test", "name of the bucket to upload to")
 
 	if seed != 0 {
 		rand.Seed(int64(seed))
+	}
+
+	if debug {
+		logrus.SetLevel(logrus.DebugLevel)
 	}
 
 	if err := root.Execute(); err != nil {
@@ -89,8 +97,8 @@ func uploadData(u uploadFunc) []*result {
 	shared := new(sharedErr)
 	results := make([]*result, fileCount)
 	bytesToMake := fileSize * 1024
-
-	logrus.Infof("Starting to upload %d files of %d bytes", fileCount, bytesToMake)
+	completed := int32(0)
+	logrus.Debugf("Starting to upload %d files of %d bytes", fileCount, bytesToMake)
 	for i := range results {
 		wg.Add(1)
 		fileID := i
@@ -107,11 +115,11 @@ func uploadData(u uploadFunc) []*result {
 				return
 			}
 
-			l.Info("generating data")
+			l.Debugf("generating data")
 			genStart := time.Now()
 			data := getDataBuffer(bytesToMake)
 			genDur := time.Since(genStart)
-			l.Infof("generated data in %s", genDur.String())
+			l.Debugf("generated data in %s", genDur.String())
 			start := time.Now()
 
 			if err := u(key, data); err != nil {
@@ -120,18 +128,21 @@ func uploadData(u uploadFunc) []*result {
 			}
 
 			dur := time.Since(start)
-			l.Infof("Finished uploading file %d/%d in %s", fileID+1, len(results), dur.String())
+			l.Debugf("Finished uploading file %d/%d in %s", fileID+1, len(results), dur.String())
 			results[fileID] = &result{
 				Size:       bytesToMake,
 				UploadTime: dur,
 				GenTime:    genDur,
 			}
+			val := atomic.AddInt32(&completed, 1)
+			fmt.Printf("Finished: %d/%d\r", val, len(results))
 		}()
 	}
 
-	logrus.Infof("Launched workers")
+	logrus.Debug("Launched workers")
 	wg.Wait()
 	dur := time.Since(globalStart)
-	logrus.Infof("Completed workers in %s", dur.String())
+	logrus.Debugf("Completed workers in %s", dur.String())
+	fmt.Println("")
 	return results
 }
