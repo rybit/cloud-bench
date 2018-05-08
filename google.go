@@ -27,7 +27,7 @@ func GoogleCmd() *cobra.Command {
 	return gcsCmd
 }
 
-func uploadToGoogle(cmd *cobra.Command, args []string) {
+func uploadToGoogle(_ *cobra.Command, args []string) {
 	if len(args) != 1 {
 		logrus.Fatal("Must provide the project id to use")
 	}
@@ -67,15 +67,15 @@ func uploadToGoogle(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	results := uploadData(func(key string, data []byte) error {
+	runTest(func(key string, data []byte) {
 		obj := b.Object(key)
 		w := obj.NewWriter(ctx)
 		if _, err := fmt.Fprintf(w, string(data)); err != nil {
-			return err
+			panic(err)
 		}
 
-		return w.Close()
+		if err := w.Close(); err != nil {
+			panic(err)
+		}
 	})
-
-	displayResults(results)
 }

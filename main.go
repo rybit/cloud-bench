@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"text/tabwriter"
 	"time"
 
 	"math/rand"
@@ -17,10 +19,21 @@ import (
 
 var maxConcurrent int
 var fileSize int64
+var filesDone int32
 var fileCount int32
 var seed int
-var bucket string
+var bucket, prefix string
 var debug bool
+
+type uploadFunc func(name string, data []byte)
+
+type result struct {
+	Size       int64
+	UploadTime time.Duration
+	GenTime    time.Duration
+}
+
+const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func main() {
 	root := cobra.Command{}
@@ -32,6 +45,7 @@ func main() {
 	root.PersistentFlags().IntVarP(&seed, "seed", "s", 0, "the seed to use for random")
 	root.PersistentFlags().BoolVarP(&debug, "verbose", "v", false, "enable debug logging")
 	root.PersistentFlags().StringVarP(&bucket, "bucket", "b", "nf-bench-test", "name of the bucket to upload to")
+	root.PersistentFlags().StringVarP(&prefix, "prefix", "p", fmt.Sprintf("%d", time.Now().Unix()), "a prefix to use for this test run")
 
 	if seed != 0 {
 		rand.Seed(int64(seed))
@@ -46,14 +60,6 @@ func main() {
 	}
 }
 
-type result struct {
-	Size       int64
-	UploadTime time.Duration
-	GenTime    time.Duration
-}
-
-const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
 func getDataBuffer(bytes int64) []byte {
 	res := make([]byte, bytes)
 	for i := range res {
@@ -63,86 +69,79 @@ func getDataBuffer(bytes int64) []byte {
 	return res
 }
 
-func displayResults(res []*result) {
-	total := time.Duration(0)
-	uploads := int64(0)
-	genTotal := time.Duration(0)
-	bs := int64(0)
-
-	for _, r := range res {
-		if r == nil {
-			continue
-		}
-		uploads++
-		bs += r.Size
-		total += r.UploadTime
-		genTotal += r.GenTime
+func runTest(u uploadFunc) {
+	wg := new(sync.WaitGroup)
+	work := make(chan string, fileCount)
+	results := make(chan *result, fileCount)
+	for i := 0; i < maxConcurrent; i++ {
+		wg.Add(1)
+		log := logrus.WithField("worker_id", i)
+		go performUploads(log, wg, work, results, u)
 	}
-	avg := time.Duration(total.Nanoseconds() / uploads)
-	avgGenTime := time.Duration(genTotal.Nanoseconds() / uploads)
-	bpsec := float32(bs) / float32(total.Seconds())
+	logrus.Infof("Started %d workers", maxConcurrent)
 
-	fmt.Printf("Completed %d uploads (%d bytes) in %s, avg %s\n", uploads, bs, total.String(), avg.String())
-	fmt.Printf("Average: %d nsec/file, %.2f bytes/sec\n", avg.Nanoseconds(), bpsec)
-	fmt.Printf("Generation time was %s, avg %s", genTotal.String(), avgGenTime.String())
+	complete := make(chan struct{})
+	go displayResults(results, complete)
+
+	for i := int32(0); i < fileCount; i++ {
+		name := string(getDataBuffer(20))
+		work <- fmt.Sprintf("%s/%s", prefix, name)
+	}
+
+	logrus.Infof("Enqueued all the work")
+	close(work)
+
+	logrus.Infof("Waiting for work to complete")
+	wg.Wait()
+	close(results)
+
+	<-complete
 }
 
-type uploadFunc func(name string, data []byte) error
+func performUploads(log *logrus.Entry, wg *sync.WaitGroup, work chan string, results chan *result, u uploadFunc) {
+	defer wg.Done()
+	for fname := range work {
+		bytesToMake := fileSize * 1024
+		log.Debugf("generating data")
 
-func uploadData(u uploadFunc) []*result {
-	globalStart := time.Now()
+		genStart := time.Now()
+		data := getDataBuffer(bytesToMake)
+		genDur := time.Since(genStart)
+		log.Debugf("generated data in %s", genDur.String())
 
-	sem := make(chan bool, maxConcurrent)
-	wg := new(sync.WaitGroup)
-	shared := new(sharedErr)
-	results := make([]*result, fileCount)
-	bytesToMake := fileSize * 1024
-	completed := int32(0)
-	logrus.Debugf("Starting to upload %d files of %d bytes", fileCount, bytesToMake)
-	for i := range results {
-		wg.Add(1)
-		fileID := i
-		go func() {
-			sem <- true
-			defer func() {
-				wg.Done()
-				<-sem
-			}()
-			key := string(getDataBuffer(20))
-			l := logrus.WithField("worker_id", key)
-			if shared.hasError() {
-				l.Debug("Skipping because of previous error")
-				return
-			}
+		upstart := time.Now()
+		u(fname, data)
+		updur := time.Since(upstart)
 
-			l.Debugf("generating data")
-			genStart := time.Now()
-			data := getDataBuffer(bytesToMake)
-			genDur := time.Since(genStart)
-			l.Debugf("generated data in %s", genDur.String())
-			start := time.Now()
+		results <- &result{
+			Size:       bytesToMake,
+			UploadTime: updur,
+			GenTime:    genDur,
+		}
+		fcount := atomic.AddInt32(&filesDone, 1)
+		log.Infof("Finished uploading file %d/%d in %s", fcount, fileCount, updur.String())
+	}
+	log.Debug("Shutdown worker")
+}
 
-			if err := u(key, data); err != nil {
-				l.WithError(err).Error("Error while uploading file")
-				return
-			}
+func displayResults(res chan *result, complete chan struct{}) {
+	var numUploads int64
+	var genTotal, upTotal time.Duration
 
-			dur := time.Since(start)
-			l.Debugf("Finished uploading file %d/%d in %s", fileID+1, len(results), dur.String())
-			results[fileID] = &result{
-				Size:       bytesToMake,
-				UploadTime: dur,
-				GenTime:    genDur,
-			}
-			val := atomic.AddInt32(&completed, 1)
-			fmt.Printf("Finished: %d/%d\r", val, len(results))
-		}()
+	for r := range res {
+		if r != nil {
+			numUploads++
+			genTotal = r.GenTime
+			upTotal = r.UploadTime
+		}
 	}
 
-	logrus.Debug("Launched workers")
-	wg.Wait()
-	dur := time.Since(globalStart)
-	logrus.Debugf("Completed workers in %s", dur.String())
-	fmt.Println("")
-	return results
+	bytesSent := numUploads * fileSize * 1024
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight|tabwriter.Debug)
+	fmt.Println("-------------------------------------------------------------------------------")
+	fmt.Fprintln(w, "num uploads\tbytes sent\tgen nanosec\tupload nanonsec")
+	fmt.Fprintf(w, "% d\t% d\t% d\t% d\n", numUploads, bytesSent, genTotal.Nanoseconds(), upTotal.Nanoseconds())
+	w.Flush()
+	fmt.Println("-------------------------------------------------------------------------------")
+	close(complete)
 }

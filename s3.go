@@ -1,8 +1,6 @@
 package main
 
 import (
-	"sync"
-
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -30,26 +28,6 @@ func S3Cmd() *cobra.Command {
 	s3Cmd.Flags().BoolVarP(&useEnvCreds, "env", "e", false, "if we should use creds from the environment")
 
 	return s3Cmd
-}
-
-type sharedErr struct {
-	sync.Mutex
-	err error
-}
-
-func (s *sharedErr) setError(err error) {
-	s.Lock()
-	if s.err == nil {
-		s.err = err
-	}
-	s.Unlock()
-}
-
-func (s *sharedErr) hasError() bool {
-	s.Lock()
-	defer s.Unlock()
-
-	return s.err != nil
 }
 
 func uploadToS3(cmd *cobra.Command, args []string) {
@@ -83,7 +61,7 @@ func uploadToS3(cmd *cobra.Command, args []string) {
 		logrus.WithError(err).Fatal("Failed to wait for bucket creation")
 	}
 
-	results := uploadData(func(key string, data []byte) error {
+	runTest(func(key string, data []byte) {
 		l := logrus.WithField("worker_id", key)
 		l.Debug("Starting to upload to s3")
 		buf := strings.NewReader(string(data))
@@ -94,8 +72,8 @@ func uploadToS3(cmd *cobra.Command, args []string) {
 			Bucket:        &bucket,
 			Key:           &key,
 		})
-		return err
+		if err != nil {
+			panic(err)
+		}
 	})
-
-	displayResults(results)
 }
