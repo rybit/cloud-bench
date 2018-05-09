@@ -26,6 +26,7 @@ The bucket in GCS was a multi-regional. The bucket in AWS was in the same region
 ### results
 
 Cross Cloud
+
 | from | to  | concurrency | kb/file | # files | generation ns  | upload ns     |
 |------|-----|-------------|---------|---------|----------------|---------------|
 | gce  | s3  | 100         | 100     | 10000   | 5329173054488  | 1566737502449 |
@@ -34,6 +35,7 @@ Cross Cloud
 | ec2  | gcs | 100         | 1000    | 10000   | 67847580371015 | 4151692912402 |
 
 Same Cloud
+
 | from | to  | concurrency | kb/file | # files | generation ns  | upload ns     |
 |------|-----|-------------|---------|---------|----------------|---------------|
 | gce  | gcs | 100         | 100     | 10000   | 3753495038963  | 3334422390625 |
