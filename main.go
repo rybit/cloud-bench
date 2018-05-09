@@ -131,8 +131,8 @@ func displayResults(res chan *result, complete chan struct{}) {
 	for r := range res {
 		if r != nil {
 			numUploads++
-			genTotal = r.GenTime
-			upTotal = r.UploadTime
+			genTotal += r.GenTime
+			upTotal += r.UploadTime
 		}
 	}
 
